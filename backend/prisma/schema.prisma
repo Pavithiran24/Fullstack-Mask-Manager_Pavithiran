@@ -1,0 +1,73 @@
+// Prisma Schema for Project & Task Management System
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String          @id @default(uuid())
+  email         String          @unique
+  password_hash String
+  full_name     String
+  avatar_url    String?
+  role          String          @default("USER") // ENUM: "ADMIN" | "USER"
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  owned_projects  Project[]       @relation("ProjectOwner")
+  memberships     ProjectMember[]
+  assigned_tasks  Task[]          @relation("TaskAssignee")
+
+  @@map("users")
+}
+
+model Project {
+  id          String          @id @default(uuid())
+  name        String
+  description String?
+  owner_id    String
+  created_at  DateTime        @default(now())
+  updated_at  DateTime        @updatedAt
+
+  owner       User            @relation("ProjectOwner", fields: [owner_id], references: [id], onDelete: Cascade)
+  members     ProjectMember[]
+  tasks       Task[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id         String   @id @default(uuid())
+  project_id String
+  user_id    String
+  role       String   @default("MEMBER") // ENUM: "OWNER" | "MEMBER"
+  joined_at  DateTime @default(now())
+
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, user_id])
+  @@map("project_members")
+}
+
+model Task {
+  id          String    @id @default(uuid())
+  project_id  String
+  title       String
+  description String?
+  status      String    @default("TODO") // ENUM: "TODO" | "IN_PROGRESS" | "DONE"
+  priority    String    @default("MEDIUM") // ENUM: "LOW" | "MEDIUM" | "HIGH"
+  assignee_id String?
+  due_date    DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  project     Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  assignee    User?     @relation("TaskAssignee", fields: [assignee_id], references: [id], onDelete: SetNull)
+
+  @@map("tasks")
+}

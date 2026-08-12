@@ -1,0 +1,95 @@
+// Prisma Schema for Production PostgreSQL
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum ProjectMemberRole {
+  OWNER
+  MEMBER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model User {
+  id            String          @id @default(uuid()) @db.Uuid
+  email         String          @unique
+  password_hash String
+  full_name     String
+  avatar_url    String?
+  role          Role            @default(USER)
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  owned_projects  Project[]       @relation("ProjectOwner")
+  memberships     ProjectMember[]
+  assigned_tasks  Task[]          @relation("TaskAssignee")
+
+  @@map("users")
+}
+
+model Project {
+  id          String          @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  owner_id    String          @db.Uuid
+  created_at  DateTime        @default(now())
+  updated_at  DateTime        @updatedAt
+
+  owner       User            @relation("ProjectOwner", fields: [owner_id], references: [id], onDelete: Cascade)
+  members     ProjectMember[]
+  tasks       Task[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id         String            @id @default(uuid()) @db.Uuid
+  project_id String            @db.Uuid
+  user_id    String            @db.Uuid
+  role       ProjectMemberRole @default(MEMBER)
+  joined_at  DateTime          @default(now())
+
+  project    Project           @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user       User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, user_id])
+  @@map("project_members")
+}
+
+model Task {
+  id          String       @id @default(uuid()) @db.Uuid
+  project_id  String       @db.Uuid
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  assignee_id String?      @db.Uuid
+  due_date    DateTime?
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  project     Project      @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  assignee    User?        @relation("TaskAssignee", fields: [assignee_id], references: [id], onDelete: SetNull)
+
+  @@map("tasks")
+}
