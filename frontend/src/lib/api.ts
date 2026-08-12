@@ -57,14 +57,15 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor with graceful mock fallback on network error (for live Vercel deployments)
+// Response interceptor with graceful mock fallback on Vercel or network error
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const isVercelHost = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
 
-    // Handle 401 token refresh
-    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
+    // Handle 401 token refresh if on local server
+    if (!isVercelHost && error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
       originalRequest._retry = true;
       try {
         const res = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
@@ -80,8 +81,8 @@ api.interceptors.response.use(
       }
     }
 
-    // Graceful Network Error Fallback for Vercel Live Preview without local backend
-    if (!error.response || error.code === 'ERR_NETWORK') {
+    // Graceful Fallback for Vercel Host or Network Errors
+    if (isVercelHost || !error.response || error.code === 'ERR_NETWORK' || error.response?.status === 404) {
       const url = originalRequest.url || '';
 
       if (url.includes('/projects')) {

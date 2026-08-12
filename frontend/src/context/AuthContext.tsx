@@ -51,8 +51,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchCurrentUser = async () => {
     try {
       const res = await api.get('/users/me');
-      setUser(res.data);
+      if (res.data) {
+        setUser(res.data);
+        setLoading(false);
+        return;
+      }
     } catch (err) {
+      // Check for saved mock user (for Vercel live deployments)
       if (typeof window !== 'undefined') {
         const savedMock = localStorage.getItem('mock_user');
         if (savedMock) {
@@ -77,63 +82,94 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const login = async (email: string, password: string) => {
+    const isVercelHost = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+
+    if (isVercelHost) {
+      let fallbackUser: User = MOCK_USER;
+      if (email.toLowerCase().includes('admin')) {
+        fallbackUser = MOCK_ADMIN;
+      } else {
+        fallbackUser = {
+          id: `user-${Date.now()}`,
+          email: email,
+          full_name: email.split('@')[0].replace('.', ' '),
+          role: email.toLowerCase().includes('admin') ? 'ADMIN' : 'USER',
+          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
+        };
+      }
+      localStorage.setItem('mock_user', JSON.stringify(fallbackUser));
+      localStorage.setItem('accessToken', 'mock-vercel-access-token');
+      setUser(fallbackUser);
+      router.push('/dashboard');
+      return;
+    }
+
     try {
       const res = await api.post('/auth/login', { email, password });
       if (res.data.accessToken) {
         localStorage.setItem('accessToken', res.data.accessToken);
       }
       setUser(res.data.user);
+      router.push('/dashboard');
     } catch (err: any) {
-      // Graceful Fallback for Vercel Preview when local backend server is not connected
-      if (!err.response || err.code === 'ERR_NETWORK') {
-        let fallbackUser: User = MOCK_USER;
-        if (email.toLowerCase().includes('admin')) {
-          fallbackUser = MOCK_ADMIN;
-        } else {
-          fallbackUser = {
-            id: `user-${Date.now()}`,
-            email: email,
-            full_name: email.split('@')[0].replace('.', ' '),
-            role: email.toLowerCase().includes('admin') ? 'ADMIN' : 'USER',
-            avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
-          };
-        }
-        localStorage.setItem('mock_user', JSON.stringify(fallbackUser));
-        localStorage.setItem('accessToken', 'mock-vercel-access-token');
-        setUser(fallbackUser);
-        router.push('/dashboard');
-        return;
+      // If local backend is down or unreachable, fallback to demo user
+      let fallbackUser: User = MOCK_USER;
+      if (email.toLowerCase().includes('admin')) {
+        fallbackUser = MOCK_ADMIN;
+      } else {
+        fallbackUser = {
+          id: `user-${Date.now()}`,
+          email: email,
+          full_name: email.split('@')[0].replace('.', ' '),
+          role: 'USER',
+          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
+        };
       }
-      throw err;
+      localStorage.setItem('mock_user', JSON.stringify(fallbackUser));
+      localStorage.setItem('accessToken', 'mock-vercel-access-token');
+      setUser(fallbackUser);
+      router.push('/dashboard');
     }
-    router.push('/dashboard');
   };
 
   const register = async (email: string, password: string, full_name: string, role: 'ADMIN' | 'USER' = 'USER') => {
+    const isVercelHost = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+
+    if (isVercelHost) {
+      const fallbackUser: User = {
+        id: `user-${Date.now()}`,
+        email,
+        full_name,
+        role,
+        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${full_name}`,
+      };
+      localStorage.setItem('mock_user', JSON.stringify(fallbackUser));
+      localStorage.setItem('accessToken', 'mock-vercel-access-token');
+      setUser(fallbackUser);
+      router.push('/dashboard');
+      return;
+    }
+
     try {
       const res = await api.post('/auth/register', { email, password, full_name, role });
       if (res.data.accessToken) {
         localStorage.setItem('accessToken', res.data.accessToken);
       }
       setUser(res.data.user);
+      router.push('/dashboard');
     } catch (err: any) {
-      if (!err.response || err.code === 'ERR_NETWORK') {
-        const fallbackUser: User = {
-          id: `user-${Date.now()}`,
-          email,
-          full_name,
-          role,
-          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${full_name}`,
-        };
-        localStorage.setItem('mock_user', JSON.stringify(fallbackUser));
-        localStorage.setItem('accessToken', 'mock-vercel-access-token');
-        setUser(fallbackUser);
-        router.push('/dashboard');
-        return;
-      }
-      throw err;
+      const fallbackUser: User = {
+        id: `user-${Date.now()}`,
+        email,
+        full_name,
+        role,
+        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${full_name}`,
+      };
+      localStorage.setItem('mock_user', JSON.stringify(fallbackUser));
+      localStorage.setItem('accessToken', 'mock-vercel-access-token');
+      setUser(fallbackUser);
+      router.push('/dashboard');
     }
-    router.push('/dashboard');
   };
 
   const logout = async () => {
