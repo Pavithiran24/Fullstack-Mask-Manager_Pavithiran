@@ -10,8 +10,8 @@ export const api = axios.create({
   },
 });
 
-// Mock Initial Data Fallbacks for Vercel Preview
-const MOCK_PROJECTS = [
+// Dynamic In-Memory Mock Store for Live Vercel Preview & Offline Fallback
+let MOCK_PROJECTS: any[] = [
   {
     id: 'proj-1',
     name: 'Enterprise App Redesign',
@@ -62,10 +62,12 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const method = (originalRequest.method || 'get').toLowerCase();
+    const url = originalRequest.url || '';
     const isVercelHost = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
 
     // Handle 401 token refresh if on local server
-    if (!isVercelHost && error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
+    if (!isVercelHost && error.response?.status === 401 && !originalRequest._retry && !url.includes('/auth/login')) {
       originalRequest._retry = true;
       try {
         const res = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
@@ -83,8 +85,106 @@ api.interceptors.response.use(
 
     // Graceful Fallback for Vercel Host or Network Errors
     if (isVercelHost || !error.response || error.code === 'ERR_NETWORK' || error.response?.status === 404) {
-      const url = originalRequest.url || '';
+      // 1. PROJECT CREATION (POST /projects)
+      if (method === 'post' && url.endsWith('/projects')) {
+        let bodyData = {};
+        try {
+          bodyData = typeof originalRequest.data === 'string' ? JSON.parse(originalRequest.data) : originalRequest.data;
+        } catch (e) {}
 
+        const newProj: any = {
+          id: `proj-${Date.now()}`,
+          name: (bodyData as any).name || 'New Project Workspace',
+          description: (bodyData as any).description || '',
+          owner_id: 'admin-id',
+          stats: { total: 0, done: 0, in_progress: 0, todo: 0, progress: 0 },
+          members: [
+            { id: `m-${Date.now()}`, user_id: 'admin-id', role: 'OWNER', user: { id: 'admin-id', full_name: 'Elena Rostova', email: 'admin@acme.com', avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Elena' } }
+          ],
+          tasks: [],
+        };
+        MOCK_PROJECTS.unshift(newProj);
+        return Promise.resolve({ data: newProj, status: 201, headers: {}, config: originalRequest });
+      }
+
+      // 2. TASK CREATION (POST /projects/:id/tasks)
+      if (method === 'post' && url.includes('/projects/') && url.includes('/tasks')) {
+        const match = url.match(/\/projects\/([^\/]+)\/tasks/);
+        const projId = match ? match[1] : 'proj-1';
+        let bodyData = {};
+        try {
+          bodyData = typeof originalRequest.data === 'string' ? JSON.parse(originalRequest.data) : originalRequest.data;
+        } catch (e) {}
+
+        const newTask = {
+          id: `t-${Date.now()}`,
+          title: (bodyData as any).title || 'New Task Item',
+          description: (bodyData as any).description || '',
+          status: (bodyData as any).status || 'TODO',
+          priority: (bodyData as any).priority || 'MEDIUM',
+          assignee: { full_name: 'Elena Rostova', avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Elena' },
+        };
+
+        const targetProj = MOCK_PROJECTS.find((p) => p.id === projId) || MOCK_PROJECTS[0];
+        targetProj.tasks.unshift(newTask);
+        targetProj.stats.total += 1;
+        if (newTask.status === 'DONE') targetProj.stats.done += 1;
+        if (newTask.status === 'IN_PROGRESS') targetProj.stats.in_progress += 1;
+        if (newTask.status === 'TODO') targetProj.stats.todo += 1;
+        targetProj.stats.progress = Math.round((targetProj.stats.done / targetProj.stats.total) * 100);
+
+        return Promise.resolve({ data: newTask, status: 201, headers: {}, config: originalRequest });
+      }
+
+      // 3. TASK UPDATE (PUT /tasks/:id)
+      if (method === 'put' && url.includes('/tasks/')) {
+        let bodyData = {};
+        try {
+          bodyData = typeof originalRequest.data === 'string' ? JSON.parse(originalRequest.data) : originalRequest.data;
+        } catch (e) {}
+
+        const taskId = url.split('/tasks/')[1];
+        let foundTask: any = null;
+        let foundProj: any = null;
+
+        for (const p of MOCK_PROJECTS) {
+          const t = p.tasks.find((tk: any) => tk.id === taskId);
+          if (t) {
+            foundTask = t;
+            foundProj = p;
+            break;
+          }
+        }
+
+        if (foundTask) {
+          if ((bodyData as any).status) foundTask.status = (bodyData as any).status;
+          if ((bodyData as any).priority) foundTask.priority = (bodyData as any).priority;
+          if (foundProj) {
+            const done = foundProj.tasks.filter((tk: any) => tk.status === 'DONE').length;
+            foundProj.stats.done = done;
+            foundProj.stats.progress = Math.round((done / foundProj.tasks.length) * 100);
+          }
+        }
+        return Promise.resolve({ data: foundTask || { id: taskId, status: 'DONE' }, status: 200, headers: {}, config: originalRequest });
+      }
+
+      // 4. TASK DELETE (DELETE /tasks/:id)
+      if (method === 'delete' && url.includes('/tasks/')) {
+        const taskId = url.split('/tasks/')[1];
+        MOCK_PROJECTS.forEach((p) => {
+          p.tasks = p.tasks.filter((tk: any) => tk.id !== taskId);
+        });
+        return Promise.resolve({ data: { message: 'Task deleted' }, status: 200, headers: {}, config: originalRequest });
+      }
+
+      // 5. PROJECT DELETE (DELETE /projects/:id)
+      if (method === 'delete' && url.includes('/projects/')) {
+        const projId = url.split('/projects/')[1];
+        MOCK_PROJECTS = MOCK_PROJECTS.filter((p) => p.id !== projId);
+        return Promise.resolve({ data: { message: 'Project deleted' }, status: 200, headers: {}, config: originalRequest });
+      }
+
+      // 6. GET PROJECTS
       if (url.includes('/projects')) {
         const match = url.match(/\/projects\/([^\/]+)/);
         if (match) {
@@ -94,11 +194,13 @@ api.interceptors.response.use(
         return Promise.resolve({ data: MOCK_PROJECTS, status: 200, headers: {}, config: originalRequest });
       }
 
+      // 7. GET TASKS
       if (url.includes('/tasks')) {
         const allTasks = MOCK_PROJECTS.flatMap((p) => p.tasks);
         return Promise.resolve({ data: allTasks, status: 200, headers: {}, config: originalRequest });
       }
 
+      // 8. GET USERS
       if (url.includes('/users')) {
         const allUsers = [
           { id: 'admin-id', full_name: 'Elena Rostova (Admin)', email: 'admin@acme.com', role: 'ADMIN', avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Elena' },

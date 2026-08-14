@@ -26,6 +26,22 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
+// Root Welcome Endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    message: '🚀 Acme Flow Corporate SaaS REST API is running',
+    version: '1.0.0',
+    endpoints: {
+      auth: '/api/auth',
+      projects: '/api/projects',
+      tasks: '/api/tasks',
+      users: '/api/users',
+      health: '/api/health',
+    },
+  });
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
